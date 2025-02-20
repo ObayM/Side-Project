@@ -1,2 +1,10 @@
-subprocess
-sys
+fastapi
+uvicorn
+google-genai
+python-dotenv
+pydantic
+pinecone-client
+pyttsx3
+SpeechRecognition
+typing-extensions
+openai

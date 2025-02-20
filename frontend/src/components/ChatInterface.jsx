@@ -1,11 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Mic, Send, Loader2, Bot, User, Sparkles } from "lucide-react";
 
-type Message = {
-  role: "user" | "ai";
-  content: string;
-};
-
 const loadingPhrases = [
   "Analyzing your request...",
   "Processing thoughts...",
@@ -19,17 +14,17 @@ const loadingPhrases = [
 
 export default function Home() {
   const [message, setMessage] = useState("");
-  const [messages, setMessages] = useState<Message[]>([
+  const [messages, setMessages] = useState([
     { role: "ai", content: "Hello! How can I help you today?" },
   ]);
   const [isLoading, setIsLoading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [loadingPhrase, setLoadingPhrase] = useState(loadingPhrases[0]);
-  const messagesEndRef = useRef<null | HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const messagesEndRef = useRef(null);
+  const inputRef = useRef(null);
 
   useEffect(() => {
-    let interval: NodeJS.Timeout;
+    let interval;
     if (isLoading) {
       let index = 0;
       interval = setInterval(() => {
@@ -51,7 +46,7 @@ export default function Home() {
   const handleSend = async () => {
     if (!message.trim()) return;
 
-    const userMessage = { role: "user" as const, content: message };
+    const userMessage = { role: "user", content: message };
     setMessages(prev => [...prev, userMessage]);
     setMessage("");
     setIsLoading(true);
@@ -70,7 +65,7 @@ export default function Home() {
 
       const data = await response.json();
       const parsedData = JSON.parse(data);
-      const aiMessage = { role: "ai" as const, content: parsedData.Message };
+      const aiMessage = { role: "ai", content: parsedData.Message };
       setMessages(prev => [...prev, aiMessage]);
       await fetch(`http://127.0.0.1:8000/text-to-speech/?text=${parsedData.Message}`, {
         method: "POST",
@@ -110,7 +105,7 @@ export default function Home() {
   
         const data = await response.json();
         const parsedData = JSON.parse(data);
-        const aiMessage = { role: "ai" as const, content: parsedData.Message };
+        const aiMessage = { role: "ai", content: parsedData.Message };
         setMessages(prev => [...prev, aiMessage]);
         await fetch(`http://127.0.0.1:8000/text-to-speech/?text=${parsedData.Message}`, {
           method: "POST",

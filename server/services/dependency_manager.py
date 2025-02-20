@@ -39,10 +39,10 @@ def install_packages(requirements: str) -> bool:
             print("No valid requirements found")
             return False
 
-        with open("requirements.txt", 'w') as f:
+        with open("/temp/requirements.txt", 'w') as f:
             f.write(requirements)
 
-        result = os.system(f"pip install -r requirements.txt")
+        result = os.system(f"pip install -r temp/requirements.txt")
         return result == 0
 
     except Exception as e:

@@ -1,6 +1,6 @@
 venv/
 .env
-prompt.txt
-top_websites.csv
 components/__pycache__
 __pycache__
+.idx
+junk/

@@ -20,11 +20,12 @@ app = FastAPI()
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # List of allowed origins
+    allow_origins=["*"],  
     allow_credentials=True,
-    allow_methods=["*"],  # Allow all HTTP methods
-    allow_headers=["*"],  # Allow all headers
+    allow_methods=["*"],  
+    allow_headers=["*"],
 )
+
 # Load environment variables
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
@@ -37,13 +38,6 @@ genai.configure(api_key=GOOGLE_API_KEY)
 pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
 pinecone_index = pc.Index(PINECONE_INDEX_NAME)
 
-# Set up TTS Engine
-engine = pyttsx3.init()
-engine.setProperty('rate', 150)
-for voice in engine.getProperty('voices'):
-    if "female" in voice.name.lower():
-        engine.setProperty('voice', voice.id)
-        break
 
 # Models
 class UserQuery(BaseModel):
@@ -210,10 +204,10 @@ async def excute(request :CommandRequest):
         if "python" in response:
             run_commands(response)
         elif "FINAL PROMPT" in response:
-            with open('prompt.txt', 'w+') as f:
+            with open('/temp/prompt.txt', 'w+') as f:
                 f.write(response)
             sleep(1)
-            os.system("python3 components/gen_code.py")
+            os.system("python3 server/services/code_generator.py")
         
     
     return {"Success": True}
@@ -242,36 +236,6 @@ async def pinecone_store(request: PineconeStoreRequest):
             "metadata": request.metadata
         }])
         return {"message": "Vector stored successfully"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/speech-to-text/")
-async def speech_to_text(background_tasks: BackgroundTasks):
-    """Toggle speech recognition and return transcribed text."""
-    recognizer = sr.Recognizer()
-
-    def listen():
-        with sr.Microphone() as source:
-            recognizer.adjust_for_ambient_noise(source)
-            print("Listening...")
-            audio = recognizer.listen(source)
-        return recognizer.recognize_google(audio)
-
-    try:
-        text = background_tasks.add_task(listen)
-        return {"transcription": text}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Speech recognition failed")
-
-
-@app.post("/text-to-speech/")
-async def text_to_speech(text: str):
-    """Convert given text to speech."""
-    try:
-        engine.say(text)
-        engine.runAndWait()
-        return {"message": "Speech played successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
