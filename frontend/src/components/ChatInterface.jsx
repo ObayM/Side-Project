@@ -1,5 +1,11 @@
 import { useState, useRef, useEffect } from "react";
 import { Mic, Send, Loader2, Bot, User, Sparkles } from "lucide-react";
+import Groq from 'groq-sdk';
+
+const groq = new Groq({
+  apiKey: "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",
+  dangerouslyAllowBrowser: true
+});
 
 const loadingPhrases = [
   "Analyzing your request...",
@@ -12,6 +18,8 @@ const loadingPhrases = [
   "Understanding context...",
 ];
 
+const BASE_URL = "https://8000-idx-side-project-1740065276139.cluster-rz2e7e5f5ff7owzufqhsecxujc.cloudworkstations.dev/"
+
 export default function Home() {
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([
@@ -22,6 +30,8 @@ export default function Home() {
   const [loadingPhrase, setLoadingPhrase] = useState(loadingPhrases[0]);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
 
   useEffect(() => {
     let interval;
@@ -43,6 +53,138 @@ export default function Home() {
     scrollToBottom();
   }, [messages]);
 
+  // Audio recording permission request
+  const requestMicrophonePermission = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      return stream;
+    } catch (error) {
+      console.error("Microphone permission denied:", error);
+      alert("Please allow microphone access to use voice input");
+      return null;
+    }
+  };
+
+  // Transcribe recorded audio using Groq API
+  const transcribeAudio = async (audioBlob) => {
+    try {
+      // Add user's audio message to the chat
+      const userMessage = { role: "user", content: "🎤 Voice message..." };
+      setMessages(prev => [...prev, userMessage]);
+      setIsLoading(true);
+      
+      // Use the Groq transcription service
+      const file = new File([audioBlob], 'audiofile.wav', { type: audioBlob.type });
+      
+      const transcription = await groq.audio.transcriptions.create({
+        file: file,
+        model: 'whisper-large-v3-turbo',
+        language: 'ar',
+      });
+      
+      const transcribedText = transcription.text;
+      
+      // Update the user message with transcribed text
+      setMessages(prev => prev.map((msg, idx) => 
+        idx === prev.length - 1 ? { ...msg, content: transcribedText } : msg
+      ));
+      
+      // Now process the transcribed text with the router
+      await processMessage(transcribedText);
+      
+    } catch (error) {
+      console.error("Error transcribing audio:", error);
+      setMessages(prev => [...prev, { 
+        role: "ai", 
+        content: "Sorry, I couldn't process your voice message. Please try again or type your message instead." 
+      }]);
+      setIsLoading(false);
+    }
+  };
+
+  // Start recording audio
+  const startRecording = async () => {
+    audioChunksRef.current = [];
+    const stream = await requestMicrophonePermission();
+    
+    if (!stream) return;
+    
+    const mediaRecorder = new MediaRecorder(stream);
+    mediaRecorderRef.current = mediaRecorder;
+    
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        audioChunksRef.current.push(event.data);
+      }
+    };
+    
+    mediaRecorder.onstop = async () => {
+      const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
+      await transcribeAudio(audioBlob);
+      
+      // Stop all tracks in the stream to release the microphone
+      stream.getTracks().forEach(track => track.stop());
+    };
+    
+    mediaRecorder.start();
+    setIsRecording(true);
+  };
+
+  // Stop recording audio
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  // Process message (for both text and transcribed audio)
+  const processMessage = async (text) => {
+    try {
+      const response = await fetch(`${BASE_URL}router/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          "query": text
+        }),
+      });
+
+      const data = await response.json();
+      const parsedData = JSON.parse(data);
+      const aiMessage = { role: "ai", content: parsedData.Message };
+      setMessages(prev => [...prev, aiMessage]);
+
+      const executeResponse = await fetch(`${BASE_URL}execute/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(
+          { command: parsedData.Routing.Action,
+            details: parsedData.Routing.Details, 
+          }
+
+        ),
+        });
+        if (parsedData.Routing.Action === "Filesharing") {
+          const executeData = await executeResponse.json();
+          const aiMessage = { role: "ai", content: executeData };
+          setMessages(prev => [...prev, aiMessage]);
+        
+        }
+    } catch (error) {
+      console.error("Error processing message:", error);
+      setMessages(prev => [...prev, { 
+        role: "ai", 
+        content: "Sorry, I encountered an error processing your request. Please try again." 
+      }]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleSend = async () => {
     if (!message.trim()) return;
 
@@ -52,85 +194,14 @@ export default function Home() {
     setIsLoading(true);
     inputRef.current?.focus();
 
-    try {
-      const response = await fetch("http://127.0.0.1:8000/router/", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          "query": message
-        }),
-      });
-
-      const data = await response.json();
-      const parsedData = JSON.parse(data);
-      const aiMessage = { role: "ai", content: parsedData.Message };
-      setMessages(prev => [...prev, aiMessage]);
-      await fetch(`http://127.0.0.1:8000/text-to-speech/?text=${parsedData.Message}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
-
-      await fetch("http://127.0.0.1:8000/excute/", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ command: parsedData.Routing.Details }),
-      });
-    } catch (error) {
-      console.error("Error:", error);
-    } finally {
-      setIsLoading(false);
-    }
+    await processMessage(message);
   };
 
   const handleMic = async () => {
-    setIsRecording(!isRecording);
-    try{
-      const stt = await fetch("http://127.0.0.1:8000/speech-to-text/")
-      try {
-        const response = await fetch("http://127.0.0.1:8000/router/", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            "query": stt
-          }),
-        });
-  
-        const data = await response.json();
-        const parsedData = JSON.parse(data);
-        const aiMessage = { role: "ai", content: parsedData.Message };
-        setMessages(prev => [...prev, aiMessage]);
-        await fetch(`http://127.0.0.1:8000/text-to-speech/?text=${parsedData.Message}`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-        });
-  
-        await fetch("http://127.0.0.1:8000/excute/", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ command: parsedData.Routing.Details }),
-        });
-      } catch (error) {
-        console.error("Error:", error);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-     catch (error){
-      console.log(error)
-    } finally {
-      setIsRecording(!isRecording)
+    if (isRecording) {
+      stopRecording();
+    } else {
+      await startRecording();
     }
   };
 
@@ -218,6 +289,7 @@ export default function Home() {
                   ? "bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700"
                   : "bg-gray-700 hover:bg-gray-600"
               }`}
+              aria-label={isRecording ? "Stop recording" : "Start recording"}
             >
               <Mic className={`w-5 h-5 ${
                 isRecording ? "animate-pulse text-white" : "text-gray-300"
@@ -232,6 +304,7 @@ export default function Home() {
                 onKeyPress={e => e.key === "Enter" && handleSend()}
                 placeholder="Type your message..."
                 className="w-full rounded-xl border border-gray-700/50 bg-gray-900/50 backdrop-blur-sm px-6 py-3 text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent placeholder-gray-400 transition-all duration-300"
+                disabled={isRecording}
               />
               {message.length > 0 && (
                 <Sparkles className="absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-cyan-500 animate-pulse" />
@@ -239,7 +312,7 @@ export default function Home() {
             </div>
             <button
               onClick={handleSend}
-              disabled={isLoading || !message.trim()}
+              disabled={isLoading || !message.trim() || isRecording}
               className="bg-gradient-to-r from-cyan-600 to-cyan-500 text-white p-3 rounded-xl hover:from-cyan-700 hover:to-cyan-600 transition-all duration-300 disabled:from-gray-700 disabled:to-gray-700 disabled:cursor-not-allowed transform hover:scale-105 disabled:hover:scale-100 group"
             >
               {isLoading ? (
@@ -249,6 +322,14 @@ export default function Home() {
               )}
             </button>
           </div>
+          {isRecording && (
+            <div className="mt-2 flex items-center justify-center">
+              <div className="text-cyan-500 text-sm flex items-center gap-2">
+                <span className="inline-block w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
+                Recording... Click the microphone icon again to stop
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
